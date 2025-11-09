@@ -139,11 +139,11 @@ export interface LoadOptions {
 }
 
 type OutputOf<F> = F extends Field<infer T> ? T : never;
-export type InferConfig<S extends Record<string, Field<any>>> = {
+export type InferConfig<S extends Record<string, Field<unknown>>> = {
 	[K in keyof S]: OutputOf<S[K]>;
 };
 
-export function load<S extends Record<string, Field<any>>>(
+export function load<S extends Record<string, Field<unknown>>>(
 	schema: S,
 	options: LoadOptions = {},
 ): InferConfig<S> {
@@ -181,8 +181,8 @@ export function load<S extends Record<string, Field<any>>>(
 
 		try {
 			out[key] = field.coerce(raw);
-		} catch (e: any) {
-			const msg = e?.message ? ` ${e.message}` : "";
+		} catch (e: unknown) {
+			const msg = e instanceof Error ? ` ${e.message}` : "";
 			throw new ConfigError(`Config '${envKey}' has value '${raw}'.${msg}`);
 		}
 	}
