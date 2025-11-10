@@ -12,6 +12,10 @@ Type-safe configuration from environment variables and .env files, inspired by [
 - **Environ wrapper** - Prevents accidental modification of already-read environment variables
 - **Flexible** - Supports required/optional fields, defaults, custom env var names, and custom coercion
 
+## Disclaimer
+
+This project is new, not yet production-ready, and may contain bugs, obvious problems, or missing features. Use at your own risk.
+
 ## Installation
 
 ```bash
