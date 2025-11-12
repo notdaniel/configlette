@@ -9,6 +9,7 @@ Type-safe configuration from environment variables and .env files, inspired by [
 - **No dependencies** - Zero runtime dependencies
 - **Type coercion** - Automatic type conversion for strings, numbers, booleans, arrays, and JSON
 - **.env support** - Reads from .env files with environment variable precedence
+- **Variable interpolation** - Reference variables in .env files with `$VAR` or `${VAR}` syntax
 - **Environ wrapper** - Prevents accidental modification of already-read environment variables
 - **Flexible** - Supports required/optional fields, defaults, custom env var names, and custom coercion
 
@@ -227,6 +228,12 @@ const config = load(schema, {
   encoding: "utf8", // File encoding (default: "utf8")
   env: process.env, // Custom env object (default: process.env)
   environment: customEnvironment, // Custom Environment instance (optional)
+  interpolate: true, // Enable variable interpolation (optional)
+  // or with options:
+  interpolate: {
+    missing: "error", // How to handle missing refs: "error" | "leave" | "empty"
+    lookup: "env-first", // Where to look: "env-first" | "file-first" | "file-only" | "env-only"
+  },
 });
 ```
 
@@ -265,7 +272,12 @@ const env = new Environment({ PORT: "3000" });
 
 #### `ConfigError`
 
-Thrown when a required config value is missing or coercion fails.
+Thrown when:
+
+- A required config value is missing
+- Type coercion fails
+- A circular reference is detected in variable interpolation
+- A referenced variable doesn't exist (with `missing: "error"` policy)
 
 ```typescript
 try {
@@ -286,6 +298,84 @@ environment.get("PORT");
 environment.set("PORT", "8080"); // throws EnvironmentError
 ```
 
+## Variable Interpolation
+
+You can reference other variables in your .env file using `$VAR` or `${VAR}` syntax:
+
+```bash
+# .env file
+PGHOST=localhost
+PGPORT=5432
+PGUSER=admin
+DATABASE_URL=postgresql://$PGUSER@$PGHOST:$PGPORT/mydb
+```
+
+```typescript
+const config = load(schema, {
+  envFile: ".env",
+  interpolate: true, // Enable interpolation
+});
+// DATABASE_URL will be: postgresql://admin@localhost:5432/mydb
+```
+
+### Interpolation Options
+
+```typescript
+interpolate: {
+  // How to handle missing variable references
+  missing: "error" | "leave" | "empty",  // default: "error"
+
+  // Where to look for variable values
+  lookup: "env-first" | "file-first" | "file-only" | "env-only"  // default: "env-first"
+}
+```
+
+**Missing policies:**
+
+- `"error"` - Throw an error if a referenced variable doesn't exist (default)
+- `"leave"` - Leave the reference as-is (e.g., `$MISSING` stays `$MISSING`)
+- `"empty"` - Replace with empty string
+
+**Lookup policies:**
+
+- `"env-first"` - Check environment variables first, then .env file (default)
+- `"file-first"` - Check .env file first, then environment variables
+- `"file-only"` - Only look in .env file
+- `"env-only"` - Only look in environment variables
+
+### Interpolation Examples
+
+```typescript
+// Basic interpolation
+load(schema, { envFile: ".env", interpolate: true });
+
+// Custom missing policy
+load(schema, {
+  envFile: ".env",
+  interpolate: { missing: "empty" },
+});
+
+// File-only lookup (ignore environment)
+load(schema, {
+  envFile: ".env",
+  interpolate: { lookup: "file-only" },
+});
+```
+
+### Escaping
+
+Use `\$` to include a literal dollar sign:
+
+```bash
+PRICE=\$100
+```
+
+### Safety
+
+- **Circular references are detected** - An error is thrown if variables reference each other in a cycle
+- **Environment variables are NOT interpolated** - Only .env file values are expanded for security
+- **Predictable precedence** - Environment variables always take precedence over .env file in the final config
+
 ## .env File Format
 
 ```bash
@@ -303,6 +393,11 @@ ALLOWED_ORIGINS=https://example.com,https://app.example.com
 
 # JSON values
 SETTINGS={"theme":"dark","locale":"en"}
+
+# Variable references (with interpolate: true)
+PGHOST=localhost
+PGPORT=5432
+DATABASE_URL=postgresql://$PGHOST:$PGPORT/mydb
 ```
 
 ### Testing

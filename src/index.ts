@@ -125,12 +125,21 @@ export function json<T = unknown>(): Field<T> {
   return custom(s => JSON.parse(s) as T);
 }
 
+type MissingPolicy = 'error' | 'leave' | 'empty';
+type LookupPolicy = 'env-first' | 'file-first' | 'file-only' | 'env-only';
+
+export interface InterpolationOptions {
+  missing?: MissingPolicy;
+  lookup?: LookupPolicy;
+}
+
 export interface LoadOptions {
   envFile?: string;
   envPrefix?: string;
   encoding?: BufferEncoding;
   env?: Record<string, string | undefined>;
   environment?: Environment;
+  interpolate?: boolean | InterpolationOptions;
 }
 
 type OutputOf<F> = F extends Field<infer T> ? T : never;
@@ -148,10 +157,27 @@ export function load<S extends Record<string, Field<unknown>>>(
     encoding = 'utf8',
     env,
     environment: customEnvironment,
+    interpolate,
   } = options;
 
   const envSource = customEnvironment ?? (env ? new Environment(env) : environment);
-  const fileValues = envFile ? readEnvFile(envFile, encoding) : {};
+  const rawFileValues = envFile ? readEnvFile(envFile, encoding) : {};
+
+  const interpolateEnabled =
+    typeof interpolate === 'boolean' ? interpolate : interpolate !== undefined;
+  const missingPolicy =
+    typeof interpolate === 'object' && interpolate.missing ? interpolate.missing : 'error';
+  const lookupPolicy =
+    typeof interpolate === 'object' && interpolate.lookup ? interpolate.lookup : 'env-first';
+
+  const envSnapshot = env ?? process.env;
+  const fileValues = interpolateEnabled
+    ? expandEnvMap(rawFileValues, envSnapshot, {
+        missing: missingPolicy,
+        lookup: lookupPolicy,
+      })
+    : rawFileValues;
+
   const out: Record<string, unknown> = {};
 
   for (const key in schema) {
@@ -209,4 +235,81 @@ function readEnvFile(file: string, encoding: BufferEncoding): Record<string, str
   }
 
   return values;
+}
+
+function interpolateString(s: string, resolve: (name: string, token: string) => string): string {
+  const ESC = '\u0000';
+  let text = s.replace(/\\\$/g, ESC);
+
+  text = text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (full, name) => resolve(name, full));
+  text = text.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (full, name) => resolve(name, full));
+
+  return text.replace(new RegExp(ESC, 'g'), '$');
+}
+
+function handleMissing(name: string, token: string, policy: MissingPolicy): string {
+  if (policy === 'leave') return token;
+  if (policy === 'empty') return '';
+  throw new ConfigError(`.env reference '${name}' is not defined in env or file`);
+}
+
+function expandEnvMap(
+  fileValues: Record<string, string>,
+  env: Record<string, string | undefined>,
+  opts: { missing: MissingPolicy; lookup: LookupPolicy },
+): Record<string, string> {
+  const resolved = new Map<string, string>();
+  const resolving: string[] = [];
+
+  const fileHas = (k: string) => Object.hasOwn(fileValues, k);
+
+  const resolveVar = (name: string, originalToken: string): string => {
+    const envVal = env[name];
+    const fileValExists = fileHas(name);
+
+    const lookup = (v: string | undefined) =>
+      v != null ? v : handleMissing(name, originalToken, opts.missing);
+
+    switch (opts.lookup) {
+      case 'env-only':
+        return lookup(envVal);
+      case 'file-only':
+        return fileValExists ? resolveKey(name) : handleMissing(name, originalToken, opts.missing);
+      case 'file-first':
+        return fileValExists ? resolveKey(name) : lookup(envVal);
+      default:
+        return envVal != null
+          ? envVal
+          : fileValExists
+            ? resolveKey(name)
+            : handleMissing(name, originalToken, opts.missing);
+    }
+  };
+
+  const resolveKey = (key: string): string => {
+    if (resolved.has(key)) return resolved.get(key)!;
+    if (!fileHas(key)) {
+      return resolveVar(key, `$${key}`);
+    }
+
+    if (resolving.includes(key)) {
+      const cycleStart = resolving.indexOf(key);
+      const cyclePath = resolving.slice(cycleStart).concat(key).join(' -> ');
+      throw new ConfigError(`Circular reference detected in .env: ${cyclePath}`);
+    }
+
+    resolving.push(key);
+    const raw = fileValues[key];
+    const out = interpolateString(raw, (name, token) => resolveVar(name, token));
+    resolving.pop();
+
+    resolved.set(key, out);
+    return out;
+  };
+
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(fileValues)) {
+    out[k] = resolveKey(k);
+  }
+  return out;
 }

@@ -343,3 +343,384 @@ describe('Environment', () => {
     expect(env.has('NONEXISTENT')).toBe(false);
   });
 });
+
+describe('Variable interpolation', () => {
+  it('expands $VAR syntax', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=localhost
+DATABASE_URL=postgresql://$PGHOST/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: true,
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://localhost/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('expands ${VAR} syntax', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=localhost
+PGPORT=5432
+DATABASE_URL=postgresql://\${PGHOST}:\${PGPORT}/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: true,
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://localhost:5432/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('expands with env-first precedence by default', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=file-host
+DATABASE_URL=postgresql://$PGHOST/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: { PGHOST: 'env-host' },
+        interpolate: true,
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://env-host/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('supports file-first lookup', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=file-host
+DATABASE_URL=postgresql://$PGHOST/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: { PGHOST: 'env-host' },
+        interpolate: { lookup: 'file-first' },
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://file-host/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('supports file-only lookup', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=file-host
+DATABASE_URL=postgresql://$PGHOST/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: { PGHOST: 'env-host' },
+        interpolate: { lookup: 'file-only' },
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://file-host/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('supports env-only lookup', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'DATABASE_URL=postgresql://$PGHOST/mydb');
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: { PGHOST: 'env-host' },
+        interpolate: { lookup: 'env-only' },
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://env-host/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('escapes \\$ for literal dollar signs', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'PRICE=\\$100');
+
+    try {
+      const schema = {
+        PRICE: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: true,
+      });
+
+      expect(config.PRICE).toBe('$100');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('throws on missing reference by default', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'DATABASE_URL=postgresql://$MISSING/mydb');
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      expect(() =>
+        load(schema, {
+          envFile: tmpFile,
+          env: {},
+          interpolate: true,
+        }),
+      ).toThrow(".env reference 'MISSING' is not defined in env or file");
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it("leaves missing reference with 'leave' policy", () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'DATABASE_URL=postgresql://$MISSING/mydb');
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: { missing: 'leave' },
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://$MISSING/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it("replaces missing reference with empty string with 'empty' policy", () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'DATABASE_URL=postgresql://$MISSING/mydb');
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: { missing: 'empty' },
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql:///mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('detects circular references', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `A=$B
+B=$A`,
+    );
+
+    try {
+      const schema = {
+        A: string(),
+      };
+
+      expect(() =>
+        load(schema, {
+          envFile: tmpFile,
+          env: {},
+          interpolate: true,
+        }),
+      ).toThrow('Circular reference detected in .env: A -> B -> A');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('handles complex circular reference chains', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `A=$B
+B=$C
+C=$A`,
+    );
+
+    try {
+      const schema = {
+        A: string(),
+      };
+
+      expect(() =>
+        load(schema, {
+          envFile: tmpFile,
+          env: {},
+          interpolate: true,
+        }),
+      ).toThrow('Circular reference detected in .env: A -> B -> C -> A');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('allows references to environment variables from file', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'CUSTOM_PATH=/usr/local/bin:$ORIGINAL_PATH');
+
+    try {
+      const schema = {
+        CUSTOM_PATH: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: { ORIGINAL_PATH: '/usr/bin' },
+        interpolate: true,
+      });
+
+      expect(config.CUSTOM_PATH).toBe('/usr/local/bin:/usr/bin');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('works with multiple interpolations in one value', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `HOST=localhost
+PORT=5432
+USER=admin
+DATABASE_URL=postgresql://$USER@$HOST:$PORT/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: true,
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://admin@localhost:5432/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('does not interpolate when disabled', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=localhost
+DATABASE_URL=postgresql://$PGHOST/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: false,
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://$PGHOST/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('defaults to no interpolation when option not provided', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PGHOST=localhost
+DATABASE_URL=postgresql://$PGHOST/mydb`,
+    );
+
+    try {
+      const schema = {
+        DATABASE_URL: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+      });
+
+      expect(config.DATABASE_URL).toBe('postgresql://$PGHOST/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+});
