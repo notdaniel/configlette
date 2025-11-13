@@ -182,7 +182,7 @@ export function load<S extends Record<string, Field<unknown>>>(
 
   for (const key in schema) {
     const field = schema[key];
-    const envKey = envPrefix + (field.envName ?? key);
+    const envKey = envPrefix + (field.envName ?? camelToScreamingSnake(key));
     const raw = envSource.get(envKey) ?? fileValues[envKey];
 
     if (raw == null) {
@@ -235,6 +235,16 @@ function readEnvFile(file: string, encoding: BufferEncoding): Record<string, str
   }
 
   return values;
+}
+
+function camelToScreamingSnake(str: string): string {
+  if (str === str.toUpperCase()) {
+    return str;
+  }
+  return str
+    .replace(/([A-Z])/g, '_$1')
+    .replace(/^_/, '')
+    .toUpperCase();
 }
 
 function interpolateString(s: string, resolve: (name: string, token: string) => string): string {

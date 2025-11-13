@@ -10,6 +10,7 @@ Type-safe configuration from environment variables and .env files, inspired by [
 - **Type coercion** - Automatic type conversion for strings, numbers, booleans, arrays, and JSON
 - **.env support** - Reads from .env files with environment variable precedence
 - **Variable interpolation** - Reference variables in .env files with `$VAR` or `${VAR}` syntax
+- **Automatic case conversion** - Use camelCase in your schema, automatically looks for SCREAMING_SNAKE_CASE env vars
 - **Environ wrapper** - Prevents accidental modification of already-read environment variables
 - **Flexible** - Supports required/optional fields, defaults, custom env var names, and custom coercion
 
@@ -39,16 +40,17 @@ import {
   type InferConfig,
 } from "configlette";
 
-// Define your config schema
+// Define your config schema with camelCase keys
 const schema = {
-  DATABASE_URL: string(),
-  PORT: number().default(3000),
-  DEBUG: boolean().default(false),
-  ALLOWED_ORIGINS: array(string()).default([]),
-  API_KEY: string().optional(),
+  databaseUrl: string(),
+  port: number().default(3000),
+  debug: boolean().default(false),
+  allowedOrigins: array(string()).default([]),
+  apiKey: string().optional(),
 } as const;
 
 // Load config from environment and .env file
+// Automatically looks for DATABASE_URL, PORT, DEBUG, etc.
 export const config = load(schema, {
   envFile: ".env",
   envPrefix: "APP_",
@@ -58,11 +60,11 @@ export const config = load(schema, {
 export type AppConfig = InferConfig<typeof schema>;
 
 // config is fully typed!
-console.log(config.DATABASE_URL); // string
-console.log(config.PORT); // number
-console.log(config.DEBUG); // boolean
-console.log(config.ALLOWED_ORIGINS); // string[]
-console.log(config.API_KEY); // string | undefined
+console.log(config.databaseUrl); // string
+console.log(config.port); // number
+console.log(config.debug); // boolean
+console.log(config.allowedOrigins); // string[]
+console.log(config.apiKey); // string | undefined
 ```
 
 ### With Environment Prefix
@@ -296,6 +298,46 @@ Thrown when attempting to modify an environment variable that has already been r
 ```typescript
 environment.get("PORT");
 environment.set("PORT", "8080"); // throws EnvironmentError
+```
+
+## Automatic Case Conversion
+
+Configlette automatically converts your camelCase schema keys to SCREAMING_SNAKE_CASE when looking up environment variables:
+
+```typescript
+const schema = {
+  databaseUrl: string(), // Looks for DATABASE_URL
+  apiKey: string(), // Looks for API_KEY
+  maxRetryCount: number(), // Looks for MAX_RETRY_COUNT
+};
+
+const config = load(schema, {
+  env: {
+    DATABASE_URL: "postgres://localhost",
+    API_KEY: "secret",
+    MAX_RETRY_COUNT: "5",
+  },
+});
+
+console.log(config.databaseUrl); // "postgres://localhost"
+console.log(config.apiKey); // "secret"
+console.log(config.maxRetryCount); // 5
+```
+
+**How it works:**
+
+- `camelCase` → `CAMEL_CASE`
+- `PascalCase` → `PASCAL_CASE`
+- `lowercase` → `LOWERCASE`
+- `ALREADY_SCREAMING` → `ALREADY_SCREAMING` (unchanged)
+
+**Override with `.fromEnv()`:**
+
+```typescript
+const schema = {
+  // Use a custom env var name instead of automatic conversion
+  databaseUrl: string().fromEnv("MY_CUSTOM_DB_VAR"),
+};
 ```
 
 ## Variable Interpolation

@@ -724,3 +724,164 @@ DATABASE_URL=postgresql://$PGHOST/mydb`,
     }
   });
 });
+
+describe('Automatic case conversion', () => {
+  it('converts camelCase to SCREAMING_SNAKE_CASE', () => {
+    const schema = {
+      databaseUrl: string(),
+    };
+
+    const config = load(schema, {
+      env: { DATABASE_URL: 'postgres://localhost' },
+    });
+
+    expect(config.databaseUrl).toBe('postgres://localhost');
+  });
+
+  it('handles multiple camelCase words', () => {
+    const schema = {
+      myApiKeyValue: string(),
+    };
+
+    const config = load(schema, {
+      env: { MY_API_KEY_VALUE: 'secret' },
+    });
+
+    expect(config.myApiKeyValue).toBe('secret');
+  });
+
+  it('works with .env files', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(tmpFile, 'DATABASE_URL=postgres://localhost');
+
+    try {
+      const schema = {
+        databaseUrl: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+      });
+
+      expect(config.databaseUrl).toBe('postgres://localhost');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('works with envPrefix', () => {
+    const schema = {
+      databaseUrl: string(),
+      apiKey: string(),
+    };
+
+    const config = load(schema, {
+      env: {
+        APP_DATABASE_URL: 'postgres://localhost',
+        APP_API_KEY: 'secret',
+      },
+      envPrefix: 'APP_',
+    });
+
+    expect(config.databaseUrl).toBe('postgres://localhost');
+    expect(config.apiKey).toBe('secret');
+  });
+
+  it('fromEnv() takes precedence over automatic conversion', () => {
+    const schema = {
+      databaseUrl: string().fromEnv('MY_CUSTOM_DB_URL'),
+    };
+
+    const config = load(schema, {
+      env: {
+        DATABASE_URL: 'wrong',
+        MY_CUSTOM_DB_URL: 'correct',
+      },
+    });
+
+    expect(config.databaseUrl).toBe('correct');
+  });
+
+  it('handles already SCREAMING_SNAKE_CASE keys', () => {
+    const schema = {
+      DATABASE_URL: string(),
+    };
+
+    const config = load(schema, {
+      env: { DATABASE_URL: 'postgres://localhost' },
+    });
+
+    expect(config.DATABASE_URL).toBe('postgres://localhost');
+  });
+
+  it('handles single word lowercase keys', () => {
+    const schema = {
+      port: number(),
+    };
+
+    const config = load(schema, {
+      env: { PORT: '3000' },
+    });
+
+    expect(config.port).toBe(3000);
+  });
+
+  it('handles PascalCase', () => {
+    const schema = {
+      DatabaseUrl: string(),
+    };
+
+    const config = load(schema, {
+      env: { DATABASE_URL: 'postgres://localhost' },
+    });
+
+    expect(config.DatabaseUrl).toBe('postgres://localhost');
+  });
+
+  it('works with type coercion', () => {
+    const schema = {
+      databasePort: number(),
+      debugMode: boolean(),
+      allowedHosts: array(string()).default([]),
+    };
+
+    const config = load(schema, {
+      env: {
+        DATABASE_PORT: '5432',
+        DEBUG_MODE: 'true',
+        ALLOWED_HOSTS: 'host1,host2,host3',
+      },
+    });
+
+    expect(config.databasePort).toBe(5432);
+    expect(config.debugMode).toBe(true);
+    expect(config.allowedHosts).toEqual(['host1', 'host2', 'host3']);
+  });
+
+  it('works with variable interpolation', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PG_HOST=localhost
+PG_PORT=5432
+DATABASE_URL=postgresql://$PG_HOST:$PG_PORT/mydb`,
+    );
+
+    try {
+      const schema = {
+        databaseUrl: string(),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+        interpolate: true,
+      });
+
+      expect(config.databaseUrl).toBe('postgresql://localhost:5432/mydb');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+});

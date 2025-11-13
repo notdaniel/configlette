@@ -1,6 +1,6 @@
 {
   "name": "configlette",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Type-safe configuration from environment variables and .env",
   "main": "dist/index.js",
   "types": "./dist/index.d.ts",
