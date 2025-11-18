@@ -6,8 +6,10 @@ import {
   array,
   boolean,
   custom,
+  derived,
   Environment,
   EnvironmentError,
+  ephemeral,
   type InferConfig,
   json,
   load,
@@ -883,5 +885,271 @@ DATABASE_URL=postgresql://$PG_HOST:$PG_PORT/mydb`,
     } finally {
       if (existsSync(tmpFile)) unlinkSync(tmpFile);
     }
+  });
+});
+
+describe('Ephemeral and Derived fields', () => {
+  it('ephemeral fields are not included in final config', () => {
+    const schema = {
+      temp: ephemeral(string()),
+      actual: string(),
+    };
+
+    const config = load(schema, {
+      env: {
+        TEMP: 'not-in-config',
+        ACTUAL: 'in-config',
+      },
+    });
+
+    expect(config).toEqual({ actual: 'in-config' });
+    expect('temp' in config).toBe(false);
+  });
+
+  it('derived fields can access regular fields', () => {
+    const schema = {
+      host: string(),
+      port: number(),
+      url: derived(cfg => `http://${cfg.host}:${cfg.port}`),
+    };
+
+    const config = load(schema, {
+      env: {
+        HOST: 'localhost',
+        PORT: '3000',
+      },
+    });
+
+    expect(config.url).toBe('http://localhost:3000');
+    expect(config.host).toBe('localhost');
+    expect(config.port).toBe(3000);
+  });
+
+  it('derived fields can access ephemeral fields', () => {
+    const schema = {
+      pgHost: ephemeral(string()),
+      pgPort: ephemeral(number()),
+      pgUser: ephemeral(string()),
+      pgPassword: ephemeral(string()),
+      databaseUrl: derived(
+        cfg => `postgresql://${cfg.pgUser}:${cfg.pgPassword}@${cfg.pgHost}:${cfg.pgPort}/mydb`,
+      ),
+    };
+
+    const config = load(schema, {
+      env: {
+        PG_HOST: 'localhost',
+        PG_PORT: '5432',
+        PG_USER: 'admin',
+        PG_PASSWORD: 'secret',
+      },
+    });
+
+    expect(config.databaseUrl).toBe('postgresql://admin:secret@localhost:5432/mydb');
+    expect('pgHost' in config).toBe(false);
+    expect('pgPort' in config).toBe(false);
+    expect('pgUser' in config).toBe(false);
+    expect('pgPassword' in config).toBe(false);
+  });
+
+  it('ephemeral fields support defaults', () => {
+    const schema = {
+      tempPort: ephemeral(number().default(5432)),
+      url: derived(cfg => `http://localhost:${cfg.tempPort}`),
+    };
+
+    const config = load(schema, { env: {} });
+
+    expect(config.url).toBe('http://localhost:5432');
+  });
+
+  it('ephemeral fields support optional', () => {
+    const schema = {
+      tempValue: ephemeral(string().optional()),
+      result: derived(cfg => cfg.tempValue ?? 'default'),
+    };
+
+    const config = load(schema, { env: {} });
+
+    expect(config.result).toBe('default');
+  });
+
+  it('ephemeral fields support fromEnv', () => {
+    const schema = {
+      tempHost: ephemeral(string().fromEnv('CUSTOM_HOST')),
+      url: derived(cfg => `http://${cfg.tempHost}`),
+    };
+
+    const config = load(schema, {
+      env: { CUSTOM_HOST: 'example.com' },
+    });
+
+    expect(config.url).toBe('http://example.com');
+  });
+
+  it('derived fields can combine multiple sources', () => {
+    const schema = {
+      protocol: string(),
+      tempHost: ephemeral(string()),
+      tempPort: ephemeral(number()),
+      path: string().default('/api'),
+      fullUrl: derived(cfg => `${cfg.protocol}://${cfg.tempHost}:${cfg.tempPort}${cfg.path}`),
+    };
+
+    const config = load(schema, {
+      env: {
+        PROTOCOL: 'https',
+        TEMP_HOST: 'api.example.com',
+        TEMP_PORT: '443',
+      },
+    });
+
+    expect(config.fullUrl).toBe('https://api.example.com:443/api');
+    expect(config.protocol).toBe('https');
+    expect(config.path).toBe('/api');
+    expect('tempHost' in config).toBe(false);
+    expect('tempPort' in config).toBe(false);
+  });
+
+  it('derived fields throw clear errors on compute failure', () => {
+    const schema = {
+      value: string(),
+      computed: derived(_cfg => {
+        throw new Error('Computation failed');
+      }),
+    };
+
+    expect(() =>
+      load(schema, {
+        env: { VALUE: 'test' },
+      }),
+    ).toThrow("Derived config 'computed' failed to compute. Computation failed");
+  });
+
+  it('type inference excludes ephemeral and includes derived', () => {
+    const schema = {
+      pgHost: ephemeral(string()),
+      pgPort: ephemeral(number()),
+      apiKey: string(),
+      databaseUrl: derived(cfg => `postgresql://${cfg.pgHost}:${cfg.pgPort}/mydb`),
+    };
+
+    type Config = InferConfig<typeof schema>;
+
+    const config: Config = load(schema, {
+      env: {
+        PG_HOST: 'localhost',
+        PG_PORT: '5432',
+        API_KEY: 'secret',
+      },
+    });
+
+    expect(config.apiKey).toBe('secret');
+    expect(config.databaseUrl).toBe('postgresql://localhost:5432/mydb');
+  });
+
+  it('works with .env files', () => {
+    const tmpFile = join(tmpdir(), `.env-test-${Date.now()}`);
+    writeFileSync(
+      tmpFile,
+      `PG_HOST=localhost
+PG_PORT=5432
+PG_USER=admin`,
+    );
+
+    try {
+      const schema = {
+        pgHost: ephemeral(string()),
+        pgPort: ephemeral(number()),
+        pgUser: ephemeral(string()),
+        connectionString: derived(cfg => `${cfg.pgUser}@${cfg.pgHost}:${cfg.pgPort}`),
+      };
+
+      const config = load(schema, {
+        envFile: tmpFile,
+        env: {},
+      });
+
+      expect(config.connectionString).toBe('admin@localhost:5432');
+    } finally {
+      if (existsSync(tmpFile)) unlinkSync(tmpFile);
+    }
+  });
+
+  it('works with envPrefix', () => {
+    const schema = {
+      tempHost: ephemeral(string()),
+      url: derived(cfg => `http://${cfg.tempHost}`),
+    };
+
+    const config = load(schema, {
+      env: { APP_TEMP_HOST: 'example.com' },
+      envPrefix: 'APP_',
+    });
+
+    expect(config.url).toBe('http://example.com');
+  });
+
+  it('derived fields can perform transformations', () => {
+    const schema = {
+      rawValue: ephemeral(string()),
+      transformed: derived(cfg => (cfg.rawValue as string).toUpperCase()),
+    };
+
+    const config = load(schema, {
+      env: { RAW_VALUE: 'hello' },
+    });
+
+    expect(config.transformed).toBe('HELLO');
+  });
+
+  it('derived fields can return different types', () => {
+    const schema = {
+      count: ephemeral(number()),
+      isPositive: derived(cfg => (cfg.count as number) > 0),
+      doubled: derived(cfg => (cfg.count as number) * 2),
+      summary: derived(cfg => ({ count: cfg.count as number, doubled: (cfg.count as number) * 2 })),
+    };
+
+    const config = load(schema, {
+      env: { COUNT: '5' },
+    });
+
+    expect(config.isPositive).toBe(true);
+    expect(config.doubled).toBe(10);
+    expect(config.summary).toEqual({ count: 5, doubled: 10 });
+  });
+
+  it('handles complex real-world scenario', () => {
+    const schema = {
+      dbHost: ephemeral(string().default('localhost')),
+      dbPort: ephemeral(number().default(5432)),
+      dbName: ephemeral(string()),
+      dbUser: ephemeral(string()),
+      dbPassword: ephemeral(string()),
+      appName: string(),
+      port: number().default(3000),
+      databaseUrl: derived(
+        cfg =>
+          `postgresql://${cfg.dbUser}:${cfg.dbPassword}@${cfg.dbHost}:${cfg.dbPort}/${cfg.dbName}`,
+      ),
+      serverUrl: derived(cfg => `http://localhost:${cfg.port}`),
+    };
+
+    const config = load(schema, {
+      env: {
+        DB_NAME: 'myapp',
+        DB_USER: 'admin',
+        DB_PASSWORD: 'secret',
+        APP_NAME: 'MyApp',
+      },
+    });
+
+    expect(config.databaseUrl).toBe('postgresql://admin:secret@localhost:5432/myapp');
+    expect(config.serverUrl).toBe('http://localhost:3000');
+    expect(config.appName).toBe('MyApp');
+    expect(config.port).toBe(3000);
+    expect('dbHost' in config).toBe(false);
+    expect('dbPassword' in config).toBe(false);
   });
 });

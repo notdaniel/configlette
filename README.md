@@ -11,7 +11,8 @@ Type-safe configuration from environment variables and .env files, inspired by [
 - **.env support** - Reads from .env files with environment variable precedence
 - **Variable interpolation** - Reference variables in .env files with `$VAR` or `${VAR}` syntax
 - **Automatic case conversion** - Use camelCase in your schema, automatically looks for SCREAMING_SNAKE_CASE env vars
-- **Environ wrapper** - Prevents accidental modification of already-read environment variables
+- **Ephemeral and derived fields** - Intermediate values that don't pollute your config, and computed fields
+- **Environment wrapper** - Prevents accidental modification of already-read environment variables
 - **Flexible** - Supports required/optional fields, defaults, custom env var names, and custom coercion
 
 ## Disclaimer
@@ -300,6 +301,101 @@ environment.get("PORT");
 environment.set("PORT", "8080"); // throws EnvironmentError
 ```
 
+## Ephemeral and Derived Fields
+
+### Ephemeral Fields
+
+Ephemeral fields are read from environment variables and validated, but **not** included in the final config object. They're useful for intermediate values that you need during config construction but don't want in your final config.
+
+```typescript
+import { ephemeral, derived, load, string, number } from "configlette";
+
+const schema = {
+  // Ephemeral - read and validated but not in final config
+  pgHost: ephemeral(string()),
+  pgPort: ephemeral(number()),
+  pgUser: ephemeral(string()),
+  pgPassword: ephemeral(string()),
+
+  // Regular field - included in final config
+  appName: string(),
+
+  // Derived - computed from other fields
+  databaseUrl: derived(
+    (cfg) =>
+      `postgresql://${cfg.pgUser}:${cfg.pgPassword}@${cfg.pgHost}:${cfg.pgPort}/mydb`,
+  ),
+};
+
+const config = load(schema, {
+  env: {
+    PG_HOST: "localhost",
+    PG_PORT: "5432",
+    PG_USER: "admin",
+    PG_PASSWORD: "secret",
+    APP_NAME: "MyApp",
+  },
+});
+
+console.log(config);
+// {
+//   appName: "MyApp",
+//   databaseUrl: "postgresql://admin:secret@localhost:5432/mydb"
+// }
+// Note: pgHost, pgPort, pgUser, pgPassword are NOT in the config
+```
+
+**Ephemeral fields support all field modifiers:**
+
+```typescript
+ephemeral(string().default("localhost"));
+ephemeral(number().optional());
+ephemeral(string().fromEnv("CUSTOM_VAR"));
+```
+
+### Derived Fields
+
+Derived fields don't read from environment variables. Instead, they're computed from other config values (both regular and ephemeral).
+
+```typescript
+const schema = {
+  protocol: string().default("https"),
+  host: string(),
+  port: number(),
+
+  // Computed from other fields
+  baseUrl: derived((cfg) => `${cfg.protocol}://${cfg.host}:${cfg.port}`),
+
+  // Can return any type
+  isSecure: derived((cfg) => cfg.protocol === "https"),
+
+  // Can perform transformations
+  uppercaseHost: derived((cfg) => (cfg.host as string).toUpperCase()),
+};
+```
+
+**Type Safety:**
+The final config type automatically excludes ephemeral fields and includes derived fields with their return types:
+
+```typescript
+const schema = {
+  temp: ephemeral(string()),
+  value: number(),
+  computed: derived((cfg) => cfg.value * 2),
+};
+
+type Config = InferConfig<typeof schema>;
+// { value: number; computed: number }
+// Note: 'temp' is excluded
+```
+
+**Use Cases:**
+
+- Building complex connection strings from parts
+- Computing derived values without storing components
+- Transforming config values
+- Keeping secrets out of the final config object
+
 ## Automatic Case Conversion
 
 Configlette automatically converts your camelCase schema keys to SCREAMING_SNAKE_CASE when looking up environment variables:
@@ -445,9 +541,9 @@ DATABASE_URL=postgresql://$PGHOST:$PGPORT/mydb
 ### Testing
 
 ```typescript
-import { load, Environ } from "configlette";
+import { load, Environment } from "configlette";
 
-const testEnv = new Environ({
+const testEnv = new Environment({
   DATABASE_URL: "postgres://test",
   PORT: "3001",
 });

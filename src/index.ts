@@ -85,6 +85,26 @@ export class Field<T> {
   }
 }
 
+export class EphemeralField<T> {
+  readonly _tag = 'Ephemeral';
+  constructor(readonly inner: Field<T>) {}
+}
+
+export function ephemeral<T>(field: Field<T>): EphemeralField<T> {
+  return new EphemeralField(field);
+}
+
+export interface DerivedField<T> {
+  _tag: 'Derived';
+  compute(cfg: Record<string, unknown>): T;
+}
+
+export function derived<T>(fn: (cfg: Record<string, unknown>) => T): DerivedField<T> {
+  return { _tag: 'Derived', compute: fn };
+}
+
+type SchemaEntry = Field<any> | EphemeralField<any> | DerivedField<any>;
+
 export function custom<T>(coerce: Coercer<T>): Field<T> {
   return new Field(coerce);
 }
@@ -142,12 +162,27 @@ export interface LoadOptions {
   interpolate?: boolean | InterpolationOptions;
 }
 
-type OutputOf<F> = F extends Field<infer T> ? T : never;
-export type InferConfig<S extends Record<string, Field<unknown>>> = {
-  [K in keyof S]: OutputOf<S[K]>;
+type OutputOf<E> = E extends Field<infer T>
+  ? T
+  : E extends EphemeralField<any>
+    ? never
+    : E extends DerivedField<infer T>
+      ? T
+      : never;
+
+export type BuildCtx<S extends Record<string, SchemaEntry>> = {
+  [K in keyof S as S[K] extends DerivedField<any> ? never : K]: S[K] extends EphemeralField<infer T>
+    ? T
+    : S[K] extends Field<infer T>
+      ? T
+      : never;
 };
 
-export function load<S extends Record<string, Field<unknown>>>(
+export type InferConfig<S extends Record<string, SchemaEntry>> = {
+  [K in keyof S as S[K] extends EphemeralField<any> ? never : K]: OutputOf<S[K]>;
+};
+
+export function load<S extends Record<string, SchemaEntry>>(
   schema: S,
   options: LoadOptions = {},
 ): InferConfig<S> {
@@ -178,34 +213,58 @@ export function load<S extends Record<string, Field<unknown>>>(
       })
     : rawFileValues;
 
-  const out: Record<string, unknown> = {};
+  const ephemerals: Record<string, unknown> = {};
+  const regulars: Record<string, unknown> = {};
+  const deriveds: Array<[string, DerivedField<unknown>]> = [];
 
-  for (const key in schema) {
-    const field = schema[key];
+  const readField = (key: string, field: Field<unknown>): unknown => {
     const envKey = envPrefix + (field.envName ?? camelToScreamingSnake(key));
     const raw = envSource.get(envKey) ?? fileValues[envKey];
 
     if (raw == null) {
-      if (field.defaultValue !== SENTINEL) {
-        out[key] = field.defaultValue;
-        continue;
-      }
-      if (field.isOptional) {
-        out[key] = undefined;
-        continue;
-      }
+      if (field.defaultValue !== SENTINEL) return field.defaultValue;
+      if (field.isOptional) return undefined;
       throw new ConfigError(`Config '${envKey}' is missing and has no default.`);
     }
 
     try {
-      out[key] = field.coerce(raw);
+      return field.coerce(raw);
     } catch (e: unknown) {
       const msg = e instanceof Error ? ` ${e.message}` : '';
       throw new ConfigError(`Config '${envKey}' has value '${raw}'.${msg}`);
     }
+  };
+
+  // pass 1: ephemerals
+  for (const key in schema) {
+    const entry = schema[key];
+    if (entry instanceof EphemeralField) {
+      ephemerals[key] = readField(key, entry.inner);
+    }
   }
 
-  return out as InferConfig<S>;
+  // pass 2: regulars
+  for (const key in schema) {
+    const entry = schema[key];
+    if (entry instanceof Field) {
+      regulars[key] = readField(key, entry);
+    } else if ((entry as DerivedField<unknown>)?._tag === 'Derived') {
+      deriveds.push([key, entry as DerivedField<unknown>]);
+    }
+  }
+
+  // pass 3: derived (read-only view of ephemeral + regular)
+  const ctx = Object.freeze({ ...regulars, ...ephemerals });
+  for (const [key, d] of deriveds) {
+    try {
+      regulars[key] = d.compute(ctx);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? ` ${e.message}` : '';
+      throw new ConfigError(`Derived config '${key}' failed to compute.${msg}`);
+    }
+  }
+
+  return regulars as InferConfig<S>;
 }
 
 function readEnvFile(file: string, encoding: BufferEncoding): Record<string, string> {
