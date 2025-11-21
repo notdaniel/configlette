@@ -160,6 +160,7 @@ export interface LoadOptions {
   env?: Record<string, string | undefined>;
   environment?: Environment;
   interpolate?: boolean | InterpolationOptions;
+  skipMissing?: boolean;
 }
 
 type OutputOf<E> = E extends Field<infer T>
@@ -193,6 +194,7 @@ export function load<S extends Record<string, SchemaEntry>>(
     env,
     environment: customEnvironment,
     interpolate,
+    skipMissing = false,
   } = options;
 
   const envSource = customEnvironment ?? (env ? new Environment(env) : environment);
@@ -224,6 +226,7 @@ export function load<S extends Record<string, SchemaEntry>>(
     if (raw == null) {
       if (field.defaultValue !== SENTINEL) return field.defaultValue;
       if (field.isOptional) return undefined;
+      if (skipMissing) return undefined;
       throw new ConfigError(`Config '${envKey}' is missing and has no default.`);
     }
 
@@ -382,3 +385,25 @@ function expandEnvMap(
   }
   return out;
 }
+
+export function generateEnvSample(
+  schema: Record<string, any>,
+  options: { envPrefix?: string } = {},
+): string {
+  const lines: string[] = [];
+  const { envPrefix = '' } = options;
+
+  for (const [key, field] of Object.entries(schema)) {
+    if (field instanceof Field) {
+      const envName = envPrefix + (field.envName ?? camelToScreamingSnake(key));
+      const description =
+        field.defaultValue !== SENTINEL ? `(default: ${field.defaultValue})` : '(required)';
+      lines.push(`# ${description}`);
+      lines.push(`${envName}=`);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+

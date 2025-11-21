@@ -1153,3 +1153,39 @@ PG_USER=admin`,
     expect('dbPassword' in config).toBe(false);
   });
 });
+
+describe('skipMissing option', () => {
+  it('skips missing env var when skipMissing is true', () => {
+    const schema = {
+      REQUIRED_VAR: string(),
+    };
+
+    const config = load(schema, { 
+      env: {}, 
+      skipMissing: true 
+    });
+
+    expect(config.REQUIRED_VAR).toBeUndefined();
+  });
+
+  it('still throws when skipMissing is false (default)', () => {
+    const schema = {
+      REQUIRED_VAR: string(),
+    };
+
+    expect(() => load(schema, { env: {} })).toThrow(
+      "Config 'REQUIRED_VAR' is missing and has no default."
+    );
+  });
+
+  it('still throws when skipMissing is explicitly false', () => {
+    const schema = {
+      REQUIRED_VAR: string(),
+    };
+
+    expect(() => load(schema, { env: {}, skipMissing: false })).toThrow(
+      "Config 'REQUIRED_VAR' is missing and has no default."
+    );
+  });
+});
+

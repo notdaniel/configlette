@@ -237,6 +237,7 @@ const config = load(schema, {
     missing: "error", // How to handle missing refs: "error" | "leave" | "empty"
     lookup: "env-first", // Where to look: "env-first" | "file-first" | "file-only" | "env-only"
   },
+  skipMissing: false, // Skip missing required variables (optional)
 });
 ```
 
@@ -539,18 +540,31 @@ DATABASE_URL=postgresql://$PGHOST:$PGPORT/mydb
 ```
 
 ### Testing
+ 
+ ```typescript
+ import { load, Environment } from "configlette";
 
-```typescript
-import { load, Environment } from "configlette";
+ // Create an isolated environment for testing
+ const testEnv = new Environment({
+   DATABASE_URL: "postgres://test",
+   PORT: "3001",
+ });
 
-const testEnv = new Environment({
-  DATABASE_URL: "postgres://test",
-  PORT: "3001",
-});
-
-const config = load(schema, { environ: testEnv });
-```
-
-## License
+ const config = load(schema, { environment: testEnv });
+ ```
+ 
+ #### Skipping Missing Variables
+ 
+ In test environments (like CI), you might not have all environment variables set. You can use `skipMissing` to suppress errors for missing required variables:
+ 
+ ```typescript
+ const config = load(schema, {
+   // In CI, we might skip required vars that aren't needed for unit tests
+   skipMissing: process.env.NODE_ENV === 'test',
+ });
+ // Missing required fields will be undefined instead of throwing
+ ```
+ 
+ ## License
 
 MIT
