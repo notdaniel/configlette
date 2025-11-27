@@ -14,6 +14,8 @@ import {
   json,
   load,
   number,
+  secret,
+  Secret,
   string,
 } from './index';
 
@@ -85,6 +87,55 @@ describe('Field constructors', () => {
     const field = custom(s => s.toUpperCase());
     expect(field.coerce('hello')).toBe('HELLO');
   });
+
+  it('secret() creates a Secret instance', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(result).toBeInstanceOf(Secret);
+  });
+
+  it('Secret.reveal() returns the actual value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(result.reveal()).toBe('my-secret-value');
+  });
+
+  it('Secret.toString() returns masked value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(result.toString()).toBe('**********');
+  });
+
+  it('Secret.valueOf() returns masked value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(result.valueOf()).toBe('**********');
+  });
+
+  it('Secret.toJSON() returns masked value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(result.toJSON()).toBe('**********');
+  });
+
+  it('String() conversion on Secret returns masked value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(String(result)).toBe('**********');
+  });
+
+  it('String concatenation with Secret returns masked value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    expect(`API Key: ${result}`).toBe('API Key: **********');
+  });
+
+  it('JSON.stringify with Secret returns masked value', () => {
+    const field = secret();
+    const result = field.coerce('my-secret-value');
+    const obj = { apiKey: result };
+    expect(JSON.stringify(obj)).toBe('{"apiKey":"**********"}');
+  });
 });
 
 describe('Field modifiers', () => {
@@ -147,6 +198,56 @@ describe('load()', () => {
     const config = load(schema, { env: {} });
 
     expect(config.API_KEY).toBeUndefined();
+  });
+
+  it('loads secret fields from env', () => {
+    const schema = {
+      apiKey: secret(),
+    };
+
+    const config = load(schema, {
+      env: { API_KEY: 'super-secret-123' },
+    });
+
+    expect(config.apiKey).toBeInstanceOf(Secret);
+    expect(config.apiKey.reveal()).toBe('super-secret-123');
+    expect(String(config.apiKey)).toBe('**********');
+  });
+
+  it('secret fields support default values', () => {
+    const schema = {
+      apiKey: secret().default(new Secret('default-secret')),
+    };
+
+    const config = load(schema, { env: {} });
+
+    expect(config.apiKey).toBeInstanceOf(Secret);
+    expect(config.apiKey.reveal()).toBe('default-secret');
+  });
+
+  it('secret fields support optional', () => {
+    const schema = {
+      apiKey: secret().optional(),
+    };
+
+    const config = load(schema, { env: {} });
+
+    expect(config.apiKey).toBeUndefined();
+  });
+
+  it('secret fields mask value when logged', () => {
+    const schema = {
+      apiKey: secret(),
+    };
+
+    const config = load(schema, {
+      env: { API_KEY: 'super-secret-123' },
+    });
+
+    // Simulate console.log behavior
+    const logOutput = String(config.apiKey);
+    expect(logOutput).toBe('**********');
+    expect(logOutput).not.toContain('super-secret-123');
   });
 
   it('applies envPrefix', () => {

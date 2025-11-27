@@ -145,6 +145,38 @@ export function json<T = unknown>(): Field<T> {
   return custom(s => JSON.parse(s) as T);
 }
 
+export class Secret {
+  private readonly value: string;
+
+  constructor(value: string) {
+    this.value = value;
+  }
+
+  reveal(): string {
+    return this.value;
+  }
+
+  toString(): string {
+    return '**********';
+  }
+
+  valueOf(): string {
+    return '**********';
+  }
+
+  toJSON(): string {
+    return '**********';
+  }
+
+  [Symbol.toPrimitive](_hint: string): string {
+    return '**********';
+  }
+}
+
+export function secret(): Field<Secret> {
+  return custom(s => new Secret(s));
+}
+
 type MissingPolicy = 'error' | 'leave' | 'empty';
 type LookupPolicy = 'env-first' | 'file-first' | 'file-only' | 'env-only';
 
