@@ -180,6 +180,27 @@ const schema = {
 };
 ```
 
+#### `secret()`
+
+Creates a `Secret` field. The value is hidden when printed to the console, serialized to JSON, or inspected.
+
+```typescript
+import { secret } from "configlette";
+
+const schema = {
+  API_KEY: secret(),
+};
+
+const config = load(schema);
+
+console.log(config.API_KEY); // Secret(**********)
+console.log(String(config.API_KEY)); // **********
+console.log(JSON.stringify(config)); // {"API_KEY":"**********"}
+
+// Reveal the actual value
+console.log(config.API_KEY.reveal()); // "actual-secret-value"
+```
+
 #### `custom<T>(coercer)`
 
 Creates a custom field with your own coercion function.

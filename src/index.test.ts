@@ -14,6 +14,8 @@ import {
   json,
   load,
   number,
+  Secret,
+  secret,
   string,
 } from './index';
 
@@ -84,6 +86,43 @@ describe('Field constructors', () => {
   it('custom() allows custom coercion', () => {
     const field = custom(s => s.toUpperCase());
     expect(field.coerce('hello')).toBe('HELLO');
+  });
+
+  it('secret() returns a Secret that masks its value', () => {
+    const field = secret();
+    const s = field.coerce('my-api-key');
+    expect(s).toBeInstanceOf(Secret);
+    expect(s.reveal()).toBe('my-api-key');
+    expect(s.toString()).toBe('**********');
+    expect(`${s}`).toBe('**********');
+  });
+});
+
+describe('Secret', () => {
+  it('reveal() returns the actual value', () => {
+    const s = new Secret('hunter2');
+    expect(s.reveal()).toBe('hunter2');
+  });
+
+  it('toString() returns masked value', () => {
+    const s = new Secret('hunter2');
+    expect(s.toString()).toBe('**********');
+  });
+
+  it('toJSON() returns masked value', () => {
+    const s = new Secret('hunter2');
+    expect(JSON.stringify({ key: s })).toBe('{"key":"**********"}');
+  });
+
+  it('string interpolation returns masked value', () => {
+    const s = new Secret('hunter2');
+    expect(`Password: ${s}`).toBe('Password: **********');
+  });
+
+  it('console.log shows masked value via inspect', () => {
+    const s = new Secret('hunter2');
+    const { inspect } = require('node:util');
+    expect(inspect(s)).toBe('Secret(**********)');
   });
 });
 
@@ -1160,9 +1199,9 @@ describe('skipMissing option', () => {
       REQUIRED_VAR: string(),
     };
 
-    const config = load(schema, { 
-      env: {}, 
-      skipMissing: true 
+    const config = load(schema, {
+      env: {},
+      skipMissing: true,
     });
 
     expect(config.REQUIRED_VAR).toBeUndefined();
@@ -1174,7 +1213,7 @@ describe('skipMissing option', () => {
     };
 
     expect(() => load(schema, { env: {} })).toThrow(
-      "Config 'REQUIRED_VAR' is missing and has no default."
+      "Config 'REQUIRED_VAR' is missing and has no default.",
     );
   });
 
@@ -1184,8 +1223,7 @@ describe('skipMissing option', () => {
     };
 
     expect(() => load(schema, { env: {}, skipMissing: false })).toThrow(
-      "Config 'REQUIRED_VAR' is missing and has no default."
+      "Config 'REQUIRED_VAR' is missing and has no default.",
     );
   });
 });
-

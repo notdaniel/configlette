@@ -145,6 +145,34 @@ export function json<T = unknown>(): Field<T> {
   return custom(s => JSON.parse(s) as T);
 }
 
+export class Secret {
+  readonly #value: string;
+
+  constructor(value: string) {
+    this.#value = value;
+  }
+
+  reveal(): string {
+    return this.#value;
+  }
+
+  toString(): string {
+    return '**********';
+  }
+
+  toJSON(): string {
+    return '**********';
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return 'Secret(**********)';
+  }
+}
+
+export function secret(): Field<Secret> {
+  return custom(s => new Secret(s));
+}
+
 type MissingPolicy = 'error' | 'leave' | 'empty';
 type LookupPolicy = 'env-first' | 'file-first' | 'file-only' | 'env-only';
 
@@ -406,4 +434,3 @@ export function generateEnvSample(
 
   return lines.join('\n');
 }
-
