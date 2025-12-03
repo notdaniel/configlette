@@ -38,6 +38,7 @@ import {
   number,
   boolean,
   array,
+  oneOf,
   type InferConfig,
 } from "configlette";
 
@@ -199,6 +200,22 @@ console.log(JSON.stringify(config)); // {"API_KEY":"**********"}
 
 // Reveal the actual value
 console.log(config.API_KEY.reveal()); // "actual-secret-value"
+```
+
+#### `oneOf(choices)`
+
+Creates an enum/choice field. Validates that the value is one of the allowed choices.
+
+```typescript
+const schema = {
+  LOG_LEVEL: oneOf(["debug", "info", "warn", "error"] as const),
+  ENV: oneOf(["development", "staging", "production"] as const).default(
+    "development",
+  ),
+};
+
+const config = load(schema, { env: { LOG_LEVEL: "info" } });
+// config.LOG_LEVEL is typed as "debug" | "info" | "warn" | "error"
 ```
 
 #### `custom<T>(coercer)`

@@ -173,6 +173,15 @@ export function secret(): Field<Secret> {
   return custom(s => new Secret(s));
 }
 
+export function oneOf<T extends string>(choices: readonly T[]): Field<T> {
+  return custom(s => {
+    if (!choices.includes(s as T)) {
+      throw new Error(`Must be one of: ${choices.join(', ')}`);
+    }
+    return s as T;
+  });
+}
+
 type MissingPolicy = 'error' | 'leave' | 'empty';
 type LookupPolicy = 'env-first' | 'file-first' | 'file-only' | 'env-only';
 
@@ -191,13 +200,14 @@ export interface LoadOptions {
   skipMissing?: boolean;
 }
 
-type OutputOf<E> = E extends Field<infer T>
-  ? T
-  : E extends EphemeralField<any>
-    ? never
-    : E extends DerivedField<infer T>
-      ? T
-      : never;
+type OutputOf<E> =
+  E extends Field<infer T>
+    ? T
+    : E extends EphemeralField<any>
+      ? never
+      : E extends DerivedField<infer T>
+        ? T
+        : never;
 
 export type BuildCtx<S extends Record<string, SchemaEntry>> = {
   [K in keyof S as S[K] extends DerivedField<any> ? never : K]: S[K] extends EphemeralField<infer T>

@@ -14,6 +14,7 @@ import {
   json,
   load,
   number,
+  oneOf,
   Secret,
   secret,
   string,
@@ -86,6 +87,19 @@ describe('Field constructors', () => {
   it('custom() allows custom coercion', () => {
     const field = custom(s => s.toUpperCase());
     expect(field.coerce('hello')).toBe('HELLO');
+  });
+
+  it('oneOf() accepts valid choices', () => {
+    const field = oneOf(['debug', 'info', 'warn', 'error'] as const);
+    expect(field.coerce('debug')).toBe('debug');
+    expect(field.coerce('info')).toBe('info');
+    expect(field.coerce('warn')).toBe('warn');
+    expect(field.coerce('error')).toBe('error');
+  });
+
+  it('oneOf() throws on invalid choice', () => {
+    const field = oneOf(['debug', 'info', 'warn', 'error'] as const);
+    expect(() => field.coerce('verbose')).toThrow('Must be one of: debug, info, warn, error');
   });
 
   it('secret() returns a Secret that masks its value', () => {
@@ -1190,6 +1204,93 @@ PG_USER=admin`,
     expect(config.port).toBe(3000);
     expect('dbHost' in config).toBe(false);
     expect('dbPassword' in config).toBe(false);
+  });
+});
+
+describe('oneOf()', () => {
+  it('works with load()', () => {
+    const schema = {
+      logLevel: oneOf(['debug', 'info', 'warn', 'error'] as const),
+    };
+
+    const config = load(schema, {
+      env: { LOG_LEVEL: 'info' },
+    });
+
+    expect(config.logLevel).toBe('info');
+  });
+
+  it('throws on invalid choice in load()', () => {
+    const schema = {
+      logLevel: oneOf(['debug', 'info', 'warn', 'error'] as const),
+    };
+
+    expect(() =>
+      load(schema, {
+        env: { LOG_LEVEL: 'verbose' },
+      }),
+    ).toThrow("Config 'LOG_LEVEL' has value 'verbose'. Must be one of: debug, info, warn, error");
+  });
+
+  it('supports default()', () => {
+    const schema = {
+      logLevel: oneOf(['debug', 'info', 'warn', 'error'] as const).default('info'),
+    };
+
+    const config = load(schema, { env: {} });
+
+    expect(config.logLevel).toBe('info');
+  });
+
+  it('supports optional()', () => {
+    const schema = {
+      logLevel: oneOf(['debug', 'info', 'warn', 'error'] as const).optional(),
+    };
+
+    const config = load(schema, { env: {} });
+
+    expect(config.logLevel).toBeUndefined();
+  });
+
+  it('supports fromEnv()', () => {
+    const schema = {
+      logLevel: oneOf(['debug', 'info', 'warn', 'error'] as const).fromEnv('CUSTOM_LOG_LEVEL'),
+    };
+
+    const config = load(schema, {
+      env: { CUSTOM_LOG_LEVEL: 'warn' },
+    });
+
+    expect(config.logLevel).toBe('warn');
+  });
+
+  it('infers correct union type', () => {
+    const schema = {
+      logLevel: oneOf(['debug', 'info', 'warn', 'error'] as const),
+    };
+
+    type Config = InferConfig<typeof schema>;
+
+    const config: Config = load(schema, {
+      env: { LOG_LEVEL: 'error' },
+    });
+
+    const level: 'debug' | 'info' | 'warn' | 'error' = config.logLevel;
+    expect(level).toBe('error');
+  });
+
+  it('works with ephemeral()', () => {
+    const schema = {
+      tempLevel: ephemeral(oneOf(['debug', 'info', 'warn', 'error'] as const)),
+      isDebug: derived(cfg => cfg.tempLevel === 'debug'),
+    };
+
+    const config = load(schema, {
+      env: { TEMP_LEVEL: 'debug' },
+    });
+
+    expect(config.isDebug).toBe(true);
+    expect('tempLevel' in config).toBe(false);
   });
 });
 
