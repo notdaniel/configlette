@@ -310,7 +310,9 @@ export function load<S extends Record<string, SchemaEntry>>(
 
 function readEnvFile(file: string, encoding: BufferEncoding): Record<string, string> {
   if (!existsSync(file)) {
-    console.warn(`Config file '${file}' not found.`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`Config file '${file}' not found.`);
+    }
     return {};
   }
 
