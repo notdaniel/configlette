@@ -1,13 +1,13 @@
 {
   "name": "configlette",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Type-safe configuration from environment variables and .env",
   "main": "dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     }
   },
